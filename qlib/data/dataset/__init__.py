@@ -732,7 +732,7 @@ class TSDataSampler:
         )
         self.idx_arr = np.array(self.idx_df.values, dtype=np.float64)  # for better performance
 
-        del self.data  # save memory
+        # del self.data  # save memory
 
     @staticmethod
     def idx_map2arr(idx_map):

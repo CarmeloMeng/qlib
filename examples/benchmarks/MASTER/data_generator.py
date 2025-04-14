@@ -19,11 +19,15 @@ from qlib.utils import init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import SignalRecord, PortAnaRecord, SigAnaRecord
 from qlib.tests.data import GetData
+from qlib.data.dataset.handler import DataHandlerLP
+
 import yaml
 import argparse
 import os
 import pprint as pp
 import numpy as np
+import pickle
+
 
 def parse_args():
     """parse arguments. You can add other arguments if needed."""
@@ -35,7 +39,7 @@ if __name__ == "__main__":
     args = parse_args()
     # use default data
     # provider_uri = "~/.qlib/qlib_data/cn_data"  # target_dir
-    provider_uri = "~/Downloads/qlib_bin"  # target_dir
+    provider_uri = "~/notebook/qlib_bin"  # target_dir
     GetData().qlib_data(target_dir=provider_uri, region=REG_CN, exists_skip=True)
     qlib.init(provider_uri=provider_uri, region=REG_CN)
     with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
@@ -50,59 +54,10 @@ if __name__ == "__main__":
         print('Save preprocessed data to', h_path)
     config["task"]["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
     dataset = init_instance_by_config(config['task']["dataset"])
+    dl_train = dataset.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+    dl_valid = dataset.prepare("valid", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+    dl_test = dataset.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
 
-    ###################################
-    # train model
-    ###################################
-
-    if not os.path.exists('./model'):
-        os.mkdir("./model")
-
-    all_metrics = {
-        k: []
-        for k in [
-            "IC",
-            "ICIR",
-            "Rank IC",
-            "Rank ICIR",
-            "1day.excess_return_without_cost.annualized_return",
-            "1day.excess_return_without_cost.information_ratio",
-        ]
-    }
-
-    for seed in range(0, 3):
-        print("------------------------")
-        print(f"seed: {seed}")
-
-        config['task']["model"]['kwargs']["seed"] = seed
-        model = init_instance_by_config(config['task']["model"])
-
-        # start exp
-        if not args.only_backtest:
-            model.fit(dataset=dataset)
-        else:
-            model.load_model(f"./model/{config['market']}master_{seed}.pkl")
-
-        with R.start(experiment_name=f"workflow_seed{seed}"):
-            # prediction
-            recorder = R.get_recorder()
-            sr = SignalRecord(model, dataset, recorder)
-            sr.generate()
-
-            # Signal Analysis
-            sar = SigAnaRecord(recorder)
-            sar.generate()
-
-            # backtest. If users want to use backtest based on their own prediction,
-            # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
-            par = PortAnaRecord(recorder, config['port_analysis_config'], "day")
-            par.generate()
-
-            metrics = recorder.list_metrics()
-            print(metrics)
-            for k in all_metrics.keys():
-                all_metrics[k].append(metrics[k])
-            pp.pprint(all_metrics)
-    
-    for k in all_metrics.keys():
-        print(f"{k}: {np.mean(all_metrics[k])} +- {np.std(all_metrics[k])}")
+    with open('csi_300_self_train.pkl', 'wb') as file: pickle.dump(dl_train, file)
+    with open('csi_300_self_valid.pkl', 'wb') as file: pickle.dump(dl_valid, file)
+    with open('csi_300_self_test.pkl', 'wb') as file: pickle.dump(dl_test, file)
